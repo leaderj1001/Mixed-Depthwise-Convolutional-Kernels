@@ -1,2 +1,1 @@
-# Mixed-Depthwise-Convolutional-Kernels
-MixNet: Mixed Depthwise Convolutional Kernels
+# Implementing Mixed-Depthwise-Convolutional-Kernels using Pytorch (22 Jul 2019)

@@ -9,7 +9,7 @@ import shutil
 
 from config import get_args
 from preprocess import load_data
-from model import MixNet
+from model import mixnet_s, mixnet_m, mixnet_l
 
 
 def adjust_learning_rate(optimizer, epoch, args):
@@ -85,7 +85,12 @@ def main(args, logger):
         num_classes = 1000
 
     print('img_size: {}, num_classes: {}, stem: {}'.format(args.img_size, num_classes, args.stem))
-    model = MixNet(num_classes=num_classes)
+    if args.model_name == 's':
+        model = mixnet_s(num_classes=num_classes)
+    elif args.model_name == 'm':
+        model = mixnet_m(num_classes=num_classes)
+    elif args.model_name == 'l':
+        model = mixnet_l(num_classes=num_classes)
 
     if args.pretrained_model:
         filename = 'best_model_' + str(args.dataset) + '_' + str(args.model_name) + '_ckpt.tar'

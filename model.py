@@ -5,10 +5,10 @@ import torch.nn.functional as F
 from mdconv import MDConv, GroupConv2D
 
 
-def round_filters(filters):
-    multiplier = 1.3
-    divisor = 8
-    min_depth = None
+def round_filters(filters, multiplier=1.0, divisor=8, min_depth=None):
+    multiplier = multiplier
+    divisor = divisor
+    min_depth = min_depth
     if not multiplier:
         return filters
 
@@ -35,7 +35,6 @@ class SqueezeExcitation(nn.Module):
         self.se_reduce = nn.Sequential(
             GroupConv2D(in_channels, out_channels),
             nn.BatchNorm2d(out_channels),
-            # nn.ReLU()
             self.activation
         )
 
@@ -134,133 +133,31 @@ class MixBlock(nn.Module):
 
 
 class MixNet(nn.Module):
-    def __init__(self, num_classes=1000, model_name='s'):
+    def __init__(self, stem, head, last_out_channels, block_args, dropout_rate=0.2, num_classes=1000):
         super(MixNet, self).__init__()
-        self.head_hidden = 1536
 
-        if model_name == 's':
-            # in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio
-            small = [
-                [16, 16, 1, 1, 1, None, False, 1, 1],
-                [16, 24, 1, 2, 6, None, False, 2, 2],
-                [24, 24, 1, 1, 3, None, False, 2, 2],
-                [24, 40, 3, 2, 6, 0.5, True, 1, 1],
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=stem, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(stem),
+            nn.ReLU(),
+        )
 
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-                [40, 80, 3, 2, 6, 0.25, True, 1, 2],
-                [80, 80, 2, 1, 6, 0.25, True, 1, 2],
-                [80, 80, 2, 1, 6, 0.25, True, 1, 2],
-
-                [80, 120, 3, 1, 6, 0.5, True, 2, 2],
-                [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-                [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-                [120, 200, 5, 2, 6, 0.5, True, 1, 1],
-                [200, 200, 4, 1, 6, 0.5, True, 1, 2],
-
-                [200, 200, 4, 1, 6, 0.5, True, 1, 2]
-            ]
-
-            self.conv = nn.Sequential(
-                nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=2, padding=1),
-                nn.BatchNorm2d(16),
-                nn.ReLU(),
-            )
-
-            layers = []
-            for in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize, project_ksize in small:
-                layers.append(MixBlock(in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize, project_ksize))
-
-            last_out_channels = 200
-
-        elif model_name == 'm':
-            self.conv = nn.Sequential(
-                nn.Conv2d(in_channels=3, out_channels=24, kernel_size=3, stride=2, padding=1),
-                nn.BatchNorm2d(24),
-                nn.ReLU(),
-            )
-
-            medium = [
-                [24, 24, 1, 1, 1, None, False, 1, 1],
-                [24, 32, 3, 2, 6, None, False, 2, 2],
-                [32, 32, 1, 1, 3, None, False, 2, 2],
-                [32, 40, 4, 2, 6, 0.5, True, 1, 1],
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-                [40, 80, 3, 2, 6, 0.25, True, 1, 1],
-                [80, 80, 4, 1, 6, 0.25, True, 2, 2],
-                [80, 80, 4, 1, 6, 0.25, True, 2, 2],
-
-                [80, 80, 4, 1, 6, 0.25, True, 2, 2],
-                [80, 120, 1, 1, 6, 0.5, True, 1, 1],
-                [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-                [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-                [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-
-                [120, 200, 4, 2, 6, 0.5, True, 1, 1],
-                [200, 200, 4, 1, 6, 0.5, True, 1, 2],
-                [200, 200, 4, 1, 6, 0.5, True, 1, 2],
-                [200, 200, 4, 1, 6, 0.5, True, 1, 2]
-            ]
-
-            layers = []
-            for in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize, project_ksize in medium:
-                layers.append(
-                    MixBlock(in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize,
-                             project_ksize))
-            last_out_channels = 200
-
-        elif model_name == 'l':
-            self.conv = nn.Sequential(
-                nn.Conv2d(in_channels=3, out_channels=round_filters(24), kernel_size=3, stride=2, padding=1),
-                nn.BatchNorm2d(round_filters(24)),
-                nn.ReLU(),
-            )
-
-            medium = [
-                [24, 24, 1, 1, 1, None, False, 1, 1],
-                [24, 32, 3, 2, 6, None, False, 2, 2],
-                [32, 32, 1, 1, 3, None, False, 2, 2],
-                [32, 40, 4, 2, 6, 0.5, True, 1, 1],
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-                [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-                [40, 80, 3, 2, 6, 0.25, True, 1, 1],
-                [80, 80, 4, 1, 6, 0.25, True, 2, 2],
-                [80, 80, 4, 1, 6, 0.25, True, 2, 2],
-
-                [80, 80, 4, 1, 6, 0.25, True, 2, 2],
-                [80, 120, 1, 1, 6, 0.5, True, 1, 1],
-                [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-                [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-                [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-
-                [120, 200, 4, 2, 6, 0.5, True, 1, 1],
-                [200, 200, 4, 1, 6, 0.5, True, 1, 2],
-                [200, 200, 4, 1, 6, 0.5, True, 1, 2],
-                [200, 200, 4, 1, 6, 0.5, True, 1, 2]
-            ]
-
-            layers = []
-            for in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize, project_ksize in medium:
-                layers.append(
-                    MixBlock(round_filters(in_channels), round_filters(out_channels), n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize,
-                             project_ksize))
-
-            last_out_channels = round_filters(200)
+        layers = []
+        for in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize, project_ksize in block_args:
+            layers.append(MixBlock(in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize, project_ksize))
 
         self.layers = nn.Sequential(*layers)
 
         self.head_conv = nn.Sequential(
-            nn.Conv2d(last_out_channels, self.head_hidden, kernel_size=1),
-            nn.BatchNorm2d(self.head_hidden),
-            nn.ReLU()
+            nn.Conv2d(last_out_channels, head, kernel_size=1),
+            nn.BatchNorm2d(head),
+            nn.ReLU(),
         )
-        self.fc = nn.Linear(self.head_hidden, num_classes)
+
+        self.fc = nn.Sequential(
+            nn.Dropout(dropout_rate),
+            nn.Linear(head, num_classes),
+        )
 
     def forward(self, x):
         out = self.conv(x)
@@ -283,7 +180,77 @@ def get_model_parameters(model):
     return total_parameters
 
 
+def mixnet_s(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None):
+    small = [
+        [16, 16, 1, 1, 1, None, False, 1, 1],
+        [16, 24, 1, 2, 6, None, False, 2, 2],
+        [24, 24, 1, 1, 3, None, False, 2, 2],
+        [24, 40, 3, 2, 6, 0.5, True, 1, 1],
+        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+
+        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+        [40, 80, 3, 2, 6, 0.25, True, 1, 2],
+        [80, 80, 2, 1, 6, 0.25, True, 1, 2],
+        [80, 80, 2, 1, 6, 0.25, True, 1, 2],
+
+        [80, 120, 3, 1, 6, 0.5, True, 2, 2],
+        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+        [120, 200, 5, 2, 6, 0.5, True, 1, 1],
+        [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+
+        [200, 200, 4, 1, 6, 0.5, True, 1, 2]
+    ]
+
+    stem = round_filters(16, multiplier)
+    last_out_channels = round_filters(200, multiplier)
+    head = round_filters(1536, multiplier)
+
+    return MixNet(stem=stem, head=head, last_out_channels=last_out_channels, block_args=small, num_classes=num_classes)
+
+
+def mixnet_m(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None):
+    medium = [
+        [24, 24, 1, 1, 1, None, False, 1, 1],
+        [24, 32, 3, 2, 6, None, False, 2, 2],
+        [32, 32, 1, 1, 3, None, False, 2, 2],
+        [32, 40, 4, 2, 6, 0.5, True, 1, 1],
+        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+
+        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+        [40, 80, 3, 2, 6, 0.25, True, 1, 1],
+        [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+        [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+
+        [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+        [80, 120, 1, 1, 6, 0.5, True, 1, 1],
+        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+
+        [120, 200, 4, 2, 6, 0.5, True, 1, 1],
+        [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+        [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+        [200, 200, 4, 1, 6, 0.5, True, 1, 2]
+    ]
+    for line in medium:
+        line[0] = round_filters(line[0], multiplier)
+        line[1] = round_filters(line[1], multiplier)
+
+    stem = round_filters(24, multiplier)
+    last_out_channels = round_filters(200, multiplier)
+    head = round_filters(1536, multiplier=1.0)
+
+    return MixNet(stem=stem, head=head, last_out_channels=last_out_channels, block_args=medium, num_classes=num_classes)
+
+
+def mixnet_l(num_classes=1000):
+    return mixnet_m(num_classes=num_classes, multiplier=1.3)
+
+
 # temp = torch.randn((16, 3, 224, 224))
-# mix = MixNet(model_name='s')
+# mix = mixnet_l()
 # print(mix(temp).size())
 # print(get_model_parameters(mix))

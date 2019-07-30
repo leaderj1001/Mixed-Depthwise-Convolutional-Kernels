@@ -27,7 +27,7 @@ class GroupConv2D(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, n_chunks=1):
         super(GroupConv2D, self).__init__()
         self.n_chunks = n_chunks
-        split_in_channels = split_layer(in_channels, n_chunks)
+        self.split_in_channels = split_layer(in_channels, n_chunks)
         split_out_channels = split_layer(out_channels, n_chunks)
 
         if n_chunks == 1:
@@ -35,15 +35,14 @@ class GroupConv2D(nn.Module):
         else:
             self.group_layers = nn.ModuleList()
             for idx in range(n_chunks):
-                self.group_layers.append(nn.Conv2d(split_in_channels[idx], split_out_channels[idx], kernel_size=kernel_size))
+                self.group_layers.append(nn.Conv2d(self.split_in_channels[idx], split_out_channels[idx], kernel_size=kernel_size))
 
     def forward(self, x):
         if self.n_chunks == 1:
             return self.group_conv(x)
         else:
-            out = torch.tensor([]).to(x)
-            for idx, each_chunk in enumerate(torch.chunk(x, self.n_chunks, dim=1)):
-                out = torch.cat((out, self.group_layers[idx](each_chunk)), dim=1)
+            split = torch.split(x, self.split_in_channels, dim=1)
+            out = torch.cat([layer(s) for layer, s in zip(self.group_layers, split)], dim=1)
             return out
 
 
@@ -51,17 +50,16 @@ class MDConv(nn.Module):
     def __init__(self, out_channels, n_chunks, stride=1):
         super(MDConv, self).__init__()
         self.n_chunks = n_chunks
-        split_out_channels = split_layer(out_channels, n_chunks)
+        self.split_out_channels = split_layer(out_channels, n_chunks)
 
         self.layers = nn.ModuleList()
         for idx in range(self.n_chunks):
             kernel_size = 2 * idx + 3
-            self.layers.append(DepthwiseConv2D(split_out_channels[idx], kernal_size=kernel_size, stride=stride))
+            self.layers.append(DepthwiseConv2D(self.split_out_channels[idx], kernal_size=kernel_size, stride=stride))
 
     def forward(self, x):
-        out = torch.tensor([]).to(x)
-        for idx, each_chunk in enumerate(torch.chunk(x, self.n_chunks, dim=1)):
-            out = torch.cat((out, self.layers[idx](each_chunk)), dim=1)
+        split = torch.split(x, self.split_out_channels, dim=1)
+        out = torch.cat([layer(s) for layer, s in zip(self.layers, split)], dim=1)
         return out
 
 

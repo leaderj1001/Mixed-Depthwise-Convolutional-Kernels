@@ -5,6 +5,7 @@
 - [Paper Link](https://arxiv.org/abs/1907.09595?context=cs.LG)
 
 # Method
+![캡처](https://user-images.githubusercontent.com/22078438/62100515-fbdabe00-b2cc-11e9-950d-e02da609f60b.PNG)
 
 # Experiment
 
@@ -18,3 +19,4 @@ IMAGENET | MixNet-m (WORK IN PROCESS) | | 5.0M, 5.0M
 IMAGENET | MixNet-l (WORK IN PROCESS) | | 7.3M, 7.3M
 
 # Reference
+- [MixNet Official Github](https://github.com/tensorflow/tpu/blob/master/models/official/mnasnet/mixnet/README.md)

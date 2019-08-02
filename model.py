@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import math
+
 from mdconv import MDConv, GroupConv2D
 
 
@@ -32,14 +34,15 @@ class SqueezeExcitation(nn.Module):
     def __init__(self, in_channels, out_channels, swish):
         super(SqueezeExcitation, self).__init__()
         self.activation = Swish() if swish else nn.ReLU()
+
         self.se_reduce = nn.Sequential(
-            GroupConv2D(in_channels, out_channels),
+            GroupConv2D(in_channels, out_channels, bias=True),
             nn.BatchNorm2d(out_channels),
             self.activation
         )
 
         self.se_expand = nn.Sequential(
-            GroupConv2D(out_channels, in_channels),
+            GroupConv2D(out_channels, in_channels, bias=True),
             nn.BatchNorm2d(in_channels),
         )
 
@@ -78,16 +81,10 @@ class MixBlock(nn.Module):
             if self._has_se:
                 num_reduced_filters = max(1, int(in_channels * se_ratio))
                 self.squeeze_excitation = SqueezeExcitation(in_channels * expand_ratio, num_reduced_filters, swish)
-
-                self.project_conv = nn.Sequential(
-                    GroupConv2D(in_channels * expand_ratio, out_channels, n_chunks=project_ksize),
-                    nn.BatchNorm2d(out_channels),
-                )
-            else:
-                self.project_conv = nn.Sequential(
-                    GroupConv2D(in_channels * expand_ratio, out_channels, n_chunks=project_ksize),
-                    nn.BatchNorm2d(out_channels),
-                )
+            self.project_conv = nn.Sequential(
+                GroupConv2D(in_channels * expand_ratio, out_channels, n_chunks=project_ksize),
+                nn.BatchNorm2d(out_channels),
+            )
         else:
             self.mdconv = nn.Sequential(
                 MDConv(in_channels, n_chunks=n_chunks, stride=stride),
@@ -98,16 +95,10 @@ class MixBlock(nn.Module):
             if self._has_se:
                 num_reduced_filters = max(1, int(in_channels * se_ratio))
                 self.squeeze_excitation = SqueezeExcitation(in_channels, num_reduced_filters, swish)
-
-                self.project_conv = nn.Sequential(
-                    GroupConv2D(in_channels, out_channels, n_chunks=project_ksize),
-                    nn.BatchNorm2d(out_channels),
-                )
-            else:
-                self.project_conv = nn.Sequential(
-                    GroupConv2D(in_channels * expand_ratio, out_channels, n_chunks=project_ksize),
-                    nn.BatchNorm2d(out_channels),
-                )
+            self.project_conv = nn.Sequential(
+                GroupConv2D(in_channels, out_channels, n_chunks=project_ksize),
+                nn.BatchNorm2d(out_channels),
+            )
 
     def forward(self, x):
         if self.expand_ratio != 1:
@@ -116,16 +107,12 @@ class MixBlock(nn.Module):
 
             if self._has_se:
                 out = self.squeeze_excitation(out)
-                out = self.project_conv(out)
-            else:
-                out = self.project_conv(out)
+            out = self.project_conv(out)
         else:
             out = self.mdconv(x)
             if self._has_se:
                 out = self.squeeze_excitation(out)
-                out = self.project_conv(out)
-            else:
-                out = self.project_conv(out)
+            out = self.project_conv(out)
 
         if self.stride == 1 and self.in_channels == self.out_channels:
             out = out + x
@@ -159,15 +146,29 @@ class MixNet(nn.Module):
             nn.Linear(head, num_classes),
         )
 
+        self._initialize_weights()
+
     def forward(self, x):
         out = self.conv(x)
         out = self.layers(out)
         out = self.head_conv(out)
 
-        out = F.avg_pool2d(out, 4)
+        out = F.avg_pool2d(out, 7)
         out = out.view(out.size(0), -1)
         out = self.fc(out)
         return out
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / fan_out))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
 
 
 def get_model_parameters(model):
@@ -196,8 +197,8 @@ def mixnet_s(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None):
 
         [80, 120, 3, 1, 6, 0.5, True, 2, 2],
         [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-        [120, 200, 5, 2, 6, 0.5, True, 1, 1],
+        [120, 120, 4, 2, 3, 0.5, True, 2, 2],
+        [120, 200, 5, 1, 6, 0.5, True, 1, 1],
         [200, 200, 4, 1, 6, 0.5, True, 1, 2],
 
         [200, 200, 4, 1, 6, 0.5, True, 1, 2]
@@ -243,14 +244,8 @@ def mixnet_m(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None):
     last_out_channels = round_filters(200, multiplier)
     head = round_filters(1536, multiplier=1.0)
 
-    return MixNet(stem=stem, head=head, last_out_channels=last_out_channels, block_args=medium, num_classes=num_classes)
+    return MixNet(stem=stem, head=head, last_out_channels=last_out_channels, block_args=medium, dropout_rate=0.25, num_classes=num_classes)
 
 
 def mixnet_l(num_classes=1000):
     return mixnet_m(num_classes=num_classes, multiplier=1.3)
-
-
-# temp = torch.randn((16, 3, 224, 224))
-# mix = mixnet_l()
-# print(mix(temp).size())
-# print(get_model_parameters(mix))

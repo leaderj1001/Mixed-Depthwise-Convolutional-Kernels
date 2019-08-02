@@ -29,19 +29,19 @@ def get_logger(filename):
 def get_args():
     parser = argparse.ArgumentParser('parameters')
 
-    parser.add_argument('--dataset', type=str, default='CIFAR10', help='CIFAR10, CIFAR100, MNIST')
+    parser.add_argument('--data', type=str, default='D:/')
+
+    parser.add_argument('--dataset', type=str, default='CIFAR10', help='CIFAR10, CIFAR100, MNIST, IMAGENET')
     parser.add_argument('--model-name', type=str, default='s', help='s, m, l')
-    parser.add_argument('--img-size', type=int, default=32)
-    parser.add_argument('--batch-size', type=int, default=1024)
+    parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--num-workers', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--lr', type=float, default=1e-1)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--weight-decay', type=float, default=5e-4)
-    parser.add_argument('--print-interval', type=int, default=25)
+    parser.add_argument('--print-interval', type=int, default=100)
     parser.add_argument('--cuda', type=bool, default=True)
     parser.add_argument('--pretrained-model', type=bool, default=False)
-    parser.add_argument('--stem', type=bool, default=False, help='attention stem: True, conv: False')
 
     parser.add_argument('--distributed', type=bool, default=False)
     parser.add_argument('--gpu-devices', type=int, nargs='+', default=None)

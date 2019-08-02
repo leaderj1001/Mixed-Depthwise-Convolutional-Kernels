@@ -6,6 +6,7 @@ import torch.optim as optim
 import os
 from tqdm import tqdm
 import shutil
+import time
 
 from config import get_args
 from preprocess import load_data
@@ -19,50 +20,149 @@ def adjust_learning_rate(optimizer, epoch, args):
         param_group['lr'] = lr
 
 
+# reference,
+# https://github.com/pytorch/examples/blob/master/imagenet/main.py
+# Thank you.
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
+
+class ProgressMeter(object):
+    def __init__(self, num_batches, *meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def print(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print('\t'.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
+
+
+def accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
+
+
 def train(model, train_loader, optimizer, criterion, epoch, args, logger):
+    batch_time = AverageMeter('Time', ':6.3f')
+    data_time = AverageMeter('Data', ':6.3f')
+    losses = AverageMeter('Loss', ':.4e')
+    top1 = AverageMeter('Acc@1', ':6.2f')
+    top5 = AverageMeter('Acc@5', ':6.2f')
+    progress = ProgressMeter(len(train_loader), batch_time, data_time, losses, top1, top5,
+                             prefix="Epoch: [{}]".format(epoch))
+
     model.train()
 
-    train_acc = 0.0
-    step = 0
-    for data, target in train_loader:
-        adjust_learning_rate(optimizer, epoch, args)
-        if args.cuda:
-            data, target = data.cuda(), target.cuda()
+    end = time.time()
+    for i, (data, target) in enumerate(train_loader):
+        # measure data loading time
+        data_time.update(time.time() - end)
 
-        optimizer.zero_grad()
+        if args.cuda:
+            data = data.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
+
+        # compute output
         output = model(data)
         loss = criterion(output, target)
+
+        # measure accuracy and record loss
+        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        losses.update(loss.item(), data.size(0))
+        top1.update(acc1[0], data.size(0))
+        top5.update(acc5[0], data.size(0))
+
+        # compute gradient and do SGD step
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        y_pred = output.data.max(1)[1]
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
 
-        acc = float(y_pred.eq(target.data).sum()) / len(data) * 100.
-        train_acc += acc
-        step += 1
-        if step % args.print_interval == 0:
-            # print("[Epoch {0:4d}] Loss: {1:2.3f} Acc: {2:.3f}%".format(epoch, loss.data, acc), end='')
-            logger.info("[Epoch {0:4d}] Loss: {1:2.3f} Acc: {2:.3f}%".format(epoch, loss.data, acc))
-            for param_group in optimizer.param_groups:
-                # print(",  Current learning rate is: {}".format(param_group['lr']))
-                logger.info("Current learning rate is: {}".format(param_group['lr']))
+        if i % args.print_interval == 0:
+            progress.print(i)
 
 
-def eval(model, test_loader, args):
-    print('evaluation ...')
+def eval(model, val_loader, criterion, args):
+    batch_time = AverageMeter('Time', ':6.3f')
+    losses = AverageMeter('Loss', ':.4e')
+    top1 = AverageMeter('Acc@1', ':6.2f')
+    top5 = AverageMeter('Acc@5', ':6.2f')
+    progress = ProgressMeter(len(val_loader), batch_time, losses, top1, top5,
+                             prefix='Test: ')
+
+    # switch to evaluate mode
     model.eval()
-    correct = 0
     with torch.no_grad():
-        for data, target in test_loader:
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
-            output = model(data)
-            prediction = output.data.max(1)[1]
-            correct += prediction.eq(target.data).sum()
+        end = time.time()
+        for i, (data, target) in enumerate(val_loader):
+            if args.cuda is not None:
+                data = data.cuda(args.gpu, non_blocking=True)
+                target = target.cuda(args.gpu, non_blocking=True)
 
-    acc = 100. * float(correct) / len(test_loader.dataset)
-    print('Test acc: {0:.2f}'.format(acc))
-    return acc
+            # compute output
+            output = model(data)
+            loss = criterion(output, target)
+
+            # measure accuracy and record loss
+            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            losses.update(loss.item(), data.size(0))
+            top1.update(acc1[0], data.size(0))
+            top5.update(acc5[0], data.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % args.print_interval == 0:
+                progress.print(i)
+
+        # TODO: this should also be done with the ProgressMeter
+        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
+              .format(top1=top1, top5=top5))
+
+    return top1.avg, top5.avg
 
 
 def get_model_parameters(model):
@@ -84,7 +184,7 @@ def main(args, logger):
     elif args.dataset == 'IMAGENET':
         num_classes = 1000
 
-    print('img_size: {}, num_classes: {}, stem: {}'.format(args.img_size, num_classes, args.stem))
+    print('Model name :: {}, Dataset :: {}, Num classes :: {}'.format(args.model_name, args.dataset, num_classes))
     if args.model_name == 's':
         model = mixnet_s(num_classes=num_classes)
     elif args.model_name == 'm':
@@ -100,13 +200,15 @@ def main(args, logger):
 
         model.load_state_dict(checkpoint['state_dict'])
         start_epoch = checkpoint['epoch']
-        best_acc = checkpoint['best_acc']
+        best_acc1 = checkpoint['best_acc1']
+        best_acc5 = checkpoint['best_acc5']
         model_parameters = checkpoint['parameters']
-        print('Load model, Parameters: {0}, Start_epoch: {1}, Acc: {2}'.format(model_parameters, start_epoch, best_acc))
-        logger.info('Load model, Parameters: {0}, Start_epoch: {1}, Acc: {2}'.format(model_parameters, start_epoch, best_acc))
+        print('Load model, Parameters: {0}, Start_epoch: {1}, Acc1: {2}, Acc5: {3}'.format(model_parameters, start_epoch, best_acc1, best_acc5))
+        logger.info('Load model, Parameters: {0}, Start_epoch: {1}, Acc1: {2}, Acc5: {3}'.format(model_parameters, start_epoch, best_acc1, best_acc5))
     else:
         start_epoch = 1
-        best_acc = 0.0
+        best_acc1 = 0.0
+        best_acc5 = 0.0
 
     if args.cuda:
         if torch.cuda.device_count() > 1:
@@ -120,15 +222,19 @@ def main(args, logger):
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
     for epoch in range(start_epoch, args.epochs + 1):
+        adjust_learning_rate(optimizer, epoch, args)
         train(model, train_loader, optimizer, criterion, epoch, args, logger)
-        eval_acc = eval(model, test_loader, args)
+        acc1, acc5 = eval(model, test_loader, criterion, args)
 
-        is_best = eval_acc > best_acc
-        best_acc = max(eval_acc, best_acc)
+        is_best = acc1 > best_acc1
+        best_acc1 = max(acc1, best_acc1)
+
+        if is_best:
+            best_acc5 = acc5
 
         if not os.path.isdir('checkpoint'):
             os.mkdir('checkpoint')
-        filename = 'best_model_' + str(args.dataset) + '_' + str(args.model_name) + '_ckpt.tar'
+        filename = 'model_' + str(args.dataset) + '_' + str(args.model_name) + '_ckpt.tar'
         print('filename :: ', filename)
 
         parameters = get_model_parameters(model)
@@ -138,7 +244,8 @@ def main(args, logger):
                 'epoch': epoch,
                 'arch': args.model_name,
                 'state_dict': model.module.state_dict(),
-                'best_acc': best_acc,
+                'best_acc1': best_acc1,
+                'best_acc5': best_acc5,
                 'optimizer': optimizer.state_dict(),
                 'parameters': parameters,
             }, is_best, filename)
@@ -147,10 +254,13 @@ def main(args, logger):
                 'epoch': epoch,
                 'arch': args.model_name,
                 'state_dict': model.state_dict(),
-                'best_acc': best_acc,
+                'best_acc1': best_acc1,
+                'best_acc5': best_acc5,
                 'optimizer': optimizer.state_dict(),
                 'parameters': parameters,
             }, is_best, filename)
+
+        print(" Test best acc1:", best_acc1, " acc1: ", acc1, " acc5: ", acc5)
 
 
 def save_checkpoint(state, is_best, filename):

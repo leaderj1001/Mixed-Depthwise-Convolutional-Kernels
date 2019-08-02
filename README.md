@@ -12,7 +12,7 @@
 | Datasets | Model | Acc1 | Acc5 | Parameters (My Model, Paper Model)
 | :---: | :---: | :---: | :---: | :---: |
 CIFAR-10 | MixNet-s (WORK IN PROCESS) | 92.82% | 99.79% | 2.6M, -
-CIFAR-10 | MixNet-m (WORK IN PROCESS) | 91.72% | 99.72% | 3.5M, -
+CIFAR-10 | MixNet-m (WORK IN PROCESS) | 92.28% | 99.78% | 3.5M, -
 CIFAR-10 | MixNet-l (WORK IN PROCESS) | 92.72% | 99.79% | 5.8M, -
 IMAGENET | MixNet-s (WORK IN PROCESS) | | | 4.1M, 4.1M
 IMAGENET | MixNet-m (WORK IN PROCESS) | | | 5.0M, 5.0M

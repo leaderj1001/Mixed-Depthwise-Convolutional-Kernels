@@ -12,11 +12,11 @@ def split_layer(total_channels, num_groups):
 
 
 class DepthwiseConv2D(nn.Module):
-    def __init__(self, in_channels, kernal_size, stride):
+    def __init__(self, in_channels, kernal_size, stride, bias=False):
         super(DepthwiseConv2D, self).__init__()
         padding = (kernal_size - 1) // 2
 
-        self.depthwise_conv = nn.Conv2d(in_channels, in_channels, kernel_size=kernal_size, padding=padding, stride=stride, groups=in_channels)
+        self.depthwise_conv = nn.Conv2d(in_channels, in_channels, kernel_size=kernal_size, padding=padding, stride=stride, groups=in_channels, bias=bias)
 
     def forward(self, x):
         out = self.depthwise_conv(x)
@@ -24,18 +24,18 @@ class DepthwiseConv2D(nn.Module):
 
 
 class GroupConv2D(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=1, n_chunks=1):
+    def __init__(self, in_channels, out_channels, kernel_size=1, n_chunks=1, bias=False):
         super(GroupConv2D, self).__init__()
         self.n_chunks = n_chunks
         self.split_in_channels = split_layer(in_channels, n_chunks)
         split_out_channels = split_layer(out_channels, n_chunks)
 
         if n_chunks == 1:
-            self.group_conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size)
+            self.group_conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, bias=bias)
         else:
             self.group_layers = nn.ModuleList()
             for idx in range(n_chunks):
-                self.group_layers.append(nn.Conv2d(self.split_in_channels[idx], split_out_channels[idx], kernel_size=kernel_size))
+                self.group_layers.append(nn.Conv2d(self.split_in_channels[idx], split_out_channels[idx], kernel_size=kernel_size, bias=bias))
 
     def forward(self, x):
         if self.n_chunks == 1:
@@ -47,7 +47,7 @@ class GroupConv2D(nn.Module):
 
 
 class MDConv(nn.Module):
-    def __init__(self, out_channels, n_chunks, stride=1):
+    def __init__(self, out_channels, n_chunks, stride=1, bias=False):
         super(MDConv, self).__init__()
         self.n_chunks = n_chunks
         self.split_out_channels = split_layer(out_channels, n_chunks)
@@ -55,7 +55,7 @@ class MDConv(nn.Module):
         self.layers = nn.ModuleList()
         for idx in range(self.n_chunks):
             kernel_size = 2 * idx + 3
-            self.layers.append(DepthwiseConv2D(self.split_out_channels[idx], kernal_size=kernel_size, stride=stride))
+            self.layers.append(DepthwiseConv2D(self.split_out_channels[idx], kernal_size=kernel_size, stride=stride, bias=bias))
 
     def forward(self, x):
         split = torch.split(x, self.split_out_channels, dim=1)

@@ -120,14 +120,22 @@ class MixBlock(nn.Module):
 
 
 class MixNet(nn.Module):
-    def __init__(self, stem, head, last_out_channels, block_args, dropout_rate=0.2, num_classes=1000):
+    def __init__(self, stem, head, last_out_channels, block_args, dropout_rate=0.2, num_classes=1000, dataset='IMAGENET'):
         super(MixNet, self).__init__()
+        self.dataset = dataset
 
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=stem, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(stem),
-            nn.ReLU(),
-        )
+        if dataset == 'IMAGENET':
+            self.conv = nn.Sequential(
+                nn.Conv2d(in_channels=3, out_channels=stem, kernel_size=3, stride=2, padding=1),
+                nn.BatchNorm2d(stem),
+                nn.ReLU(),
+            )
+        elif dataset == 'CIFAR10' or dataset == 'CIFAR100':
+            self.conv = nn.Sequential(
+                nn.Conv2d(in_channels=3, out_channels=stem, kernel_size=3, stride=1, padding=1),
+                nn.BatchNorm2d(stem),
+                nn.ReLU(),
+            )
 
         layers = []
         for in_channels, out_channels, n_chunks, stride, expqand_ratio, se_ratio, swish, expand_ksize, project_ksize in block_args:
@@ -153,7 +161,10 @@ class MixNet(nn.Module):
         out = self.layers(out)
         out = self.head_conv(out)
 
-        out = F.avg_pool2d(out, 7)
+        if self.dataset == 'IMAGENET':
+            out = F.avg_pool2d(out, 7)
+        elif self.dataset == 'CIFAR10' or self.dataset == 'CIFAR100':
+            out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         out = self.fc(out)
         return out
@@ -181,61 +192,110 @@ def get_model_parameters(model):
     return total_parameters
 
 
-def mixnet_s(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None):
-    small = [
-        [16, 16, 1, 1, 1, None, False, 1, 1],
-        [16, 24, 1, 2, 6, None, False, 2, 2],
-        [24, 24, 1, 1, 3, None, False, 2, 2],
-        [24, 40, 3, 2, 6, 0.5, True, 1, 1],
-        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+def mixnet_s(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None, dataset='IMAGENET'):
+    if dataset == 'IMAGENET':
+        small = [
+            [16, 16, 1, 1, 1, None, False, 1, 1],
+            [16, 24, 1, 2, 6, None, False, 2, 2],
+            [24, 24, 1, 1, 3, None, False, 2, 2],
+            [24, 40, 3, 2, 6, 0.5, True, 1, 1],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
 
-        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-        [40, 80, 3, 2, 6, 0.25, True, 1, 2],
-        [80, 80, 2, 1, 6, 0.25, True, 1, 2],
-        [80, 80, 2, 1, 6, 0.25, True, 1, 2],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+            [40, 80, 3, 2, 6, 0.25, True, 1, 2],
+            [80, 80, 2, 1, 6, 0.25, True, 1, 2],
+            [80, 80, 2, 1, 6, 0.25, True, 1, 2],
 
-        [80, 120, 3, 1, 6, 0.5, True, 2, 2],
-        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-        [120, 120, 4, 2, 3, 0.5, True, 2, 2],
-        [120, 200, 5, 1, 6, 0.5, True, 1, 1],
-        [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+            [80, 120, 3, 1, 6, 0.5, True, 2, 2],
+            [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+            [120, 120, 4, 2, 3, 0.5, True, 2, 2],
+            [120, 200, 5, 1, 6, 0.5, True, 1, 1],
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2],
 
-        [200, 200, 4, 1, 6, 0.5, True, 1, 2]
-    ]
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2]
+        ]
+    elif dataset == 'CIFAR10' or dataset == 'CIFAR100':
+        small = [
+            [16, 16, 1, 1, 1, None, False, 1, 1],
+            [16, 24, 1, 1, 6, None, False, 2, 2],
+            [24, 24, 1, 1, 3, None, False, 2, 2],
+            [24, 40, 3, 2, 6, 0.5, True, 1, 1],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+            [40, 80, 3, 2, 6, 0.25, True, 1, 2],
+            [80, 80, 2, 1, 6, 0.25, True, 1, 2],
+            [80, 80, 2, 1, 6, 0.25, True, 1, 2],
+
+            [80, 120, 3, 1, 6, 0.5, True, 2, 2],
+            [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+            [120, 120, 4, 2, 3, 0.5, True, 2, 2],
+            [120, 200, 5, 1, 6, 0.5, True, 1, 1],
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2]
+        ]
 
     stem = round_filters(16, multiplier)
     last_out_channels = round_filters(200, multiplier)
     head = round_filters(1536, multiplier)
 
-    return MixNet(stem=stem, head=head, last_out_channels=last_out_channels, block_args=small, num_classes=num_classes)
+    return MixNet(stem=stem, head=head, last_out_channels=last_out_channels, block_args=small, num_classes=num_classes, dataset=dataset)
 
 
-def mixnet_m(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None):
-    medium = [
-        [24, 24, 1, 1, 1, None, False, 1, 1],
-        [24, 32, 3, 2, 6, None, False, 2, 2],
-        [32, 32, 1, 1, 3, None, False, 2, 2],
-        [32, 40, 4, 2, 6, 0.5, True, 1, 1],
-        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+def mixnet_m(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None, dataset='IMAGENET'):
+    if dataset == 'IMAGENET':
+        medium = [
+            [24, 24, 1, 1, 1, None, False, 1, 1],
+            [24, 32, 3, 2, 6, None, False, 2, 2],
+            [32, 32, 1, 1, 3, None, False, 2, 2],
+            [32, 40, 4, 2, 6, 0.5, True, 1, 1],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
 
-        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-        [40, 40, 2, 1, 6, 0.5, True, 2, 2],
-        [40, 80, 3, 2, 6, 0.25, True, 1, 1],
-        [80, 80, 4, 1, 6, 0.25, True, 2, 2],
-        [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+            [40, 80, 3, 2, 6, 0.25, True, 1, 1],
+            [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+            [80, 80, 4, 1, 6, 0.25, True, 2, 2],
 
-        [80, 80, 4, 1, 6, 0.25, True, 2, 2],
-        [80, 120, 1, 1, 6, 0.5, True, 1, 1],
-        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
-        [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+            [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+            [80, 120, 1, 1, 6, 0.5, True, 1, 1],
+            [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+            [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+            [120, 120, 4, 1, 3, 0.5, True, 2, 2],
 
-        [120, 200, 4, 2, 6, 0.5, True, 1, 1],
-        [200, 200, 4, 1, 6, 0.5, True, 1, 2],
-        [200, 200, 4, 1, 6, 0.5, True, 1, 2],
-        [200, 200, 4, 1, 6, 0.5, True, 1, 2]
-    ]
+            [120, 200, 4, 2, 6, 0.5, True, 1, 1],
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2]
+        ]
+    elif dataset == 'CIFAR10' or dataset == 'CIFAR100':
+        medium = [
+            [24, 24, 1, 1, 1, None, False, 1, 1],
+            [24, 32, 3, 1, 6, None, False, 2, 2],
+            [32, 32, 1, 1, 3, None, False, 2, 2],
+            [32, 40, 4, 2, 6, 0.5, True, 1, 1],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+            [40, 40, 2, 1, 6, 0.5, True, 2, 2],
+            [40, 80, 3, 2, 6, 0.25, True, 1, 1],
+            [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+            [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+
+            [80, 80, 4, 1, 6, 0.25, True, 2, 2],
+            [80, 120, 1, 1, 6, 0.5, True, 1, 1],
+            [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+            [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+            [120, 120, 4, 1, 3, 0.5, True, 2, 2],
+
+            [120, 200, 4, 2, 6, 0.5, True, 1, 1],
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2],
+            [200, 200, 4, 1, 6, 0.5, True, 1, 2]
+        ]
     for line in medium:
         line[0] = round_filters(line[0], multiplier)
         line[1] = round_filters(line[1], multiplier)
@@ -244,8 +304,8 @@ def mixnet_m(num_classes=1000, multiplier=1.0, divisor=8, min_depth=None):
     last_out_channels = round_filters(200, multiplier)
     head = round_filters(1536, multiplier=1.0)
 
-    return MixNet(stem=stem, head=head, last_out_channels=last_out_channels, block_args=medium, dropout_rate=0.25, num_classes=num_classes)
+    return MixNet(stem=stem, head=head, last_out_channels=last_out_channels, block_args=medium, dropout_rate=0.25, num_classes=num_classes, dataset=dataset)
 
 
-def mixnet_l(num_classes=1000):
-    return mixnet_m(num_classes=num_classes, multiplier=1.3)
+def mixnet_l(num_classes=1000, dataset='IMAGENET'):
+    return mixnet_m(num_classes=num_classes, multiplier=1.3, dataset=dataset)

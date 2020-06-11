@@ -34,7 +34,7 @@ def load_data(args):
 
         test_loader = torch.utils.data.DataLoader(
             datasets.CIFAR10('data', train=False, transform=transform_test),
-            batch_size=args.batch_size,
+            batch_size=100,
             shuffle=False,
             num_workers=args.num_workers
         )
@@ -66,7 +66,7 @@ def load_data(args):
 
         test_loader = torch.utils.data.DataLoader(
             datasets.CIFAR100('data', train=False, transform=transform_test),
-            batch_size=args.batch_size,
+            batch_size=100,
             shuffle=False,
             num_workers=args.num_workers
         )

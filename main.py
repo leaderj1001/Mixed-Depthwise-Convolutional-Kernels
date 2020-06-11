@@ -186,11 +186,11 @@ def main(args, logger):
 
     print('Model name :: {}, Dataset :: {}, Num classes :: {}'.format(args.model_name, args.dataset, num_classes))
     if args.model_name == 's':
-        model = mixnet_s(num_classes=num_classes)
+        model = mixnet_s(num_classes=num_classes, dataset=args.dataset)
     elif args.model_name == 'm':
-        model = mixnet_m(num_classes=num_classes)
+        model = mixnet_m(num_classes=num_classes, dataset=args.dataset)
     elif args.model_name == 'l':
-        model = mixnet_l(num_classes=num_classes)
+        model = mixnet_l(num_classes=num_classes, dataset=args.dataset)
 
     if args.pretrained_model:
         filename = 'best_model_' + str(args.dataset) + '_' + str(args.model_name) + '_ckpt.tar'
@@ -220,11 +220,13 @@ def main(args, logger):
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    lr_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=0.001)
 
     for epoch in range(start_epoch, args.epochs + 1):
-        adjust_learning_rate(optimizer, epoch, args)
+        # adjust_learning_rate(optimizer, epoch, args)
         train(model, train_loader, optimizer, criterion, epoch, args, logger)
         acc1, acc5 = eval(model, test_loader, criterion, args)
+        lr_scheduler.step()
 
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
